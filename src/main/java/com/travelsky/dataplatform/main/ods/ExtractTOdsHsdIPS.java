@@ -195,8 +195,7 @@ public class ExtractTOdsHsdIPS {
         TicketCheckOutFactTrans.output(kafka_source);
         // 旅客客票航段有效期变更
         TktSegDurChangeFactTrans.output(kafka_source);
-        // 客票退票
-        TRFDFactTrans.output(kafka_source);
+       
         // 客票取消成行
         Used2OpenFactTrans.output(kafka_source);
         // 客票取消废票
