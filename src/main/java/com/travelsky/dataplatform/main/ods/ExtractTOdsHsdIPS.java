@@ -196,12 +196,6 @@ public class ExtractTOdsHsdIPS {
         // 旅客客票航段有效期变更
         TktSegDurChangeFactTrans.output(kafka_source);
         // 客票退票
-        TRFDFactTrans.output(kafka_source);
-        // 客票取消成行
-        Used2OpenFactTrans.output(kafka_source);
-        // 客票取消废票
-        Void2OpenFactTrans.output(kafka_source);
-        // 废票
         TickingSegFactFactTrans.outputVT(kafka_source);*/
         //启动任务
         env.execute("Flink Kafka Consumer -> Doris HSD IPS ");
