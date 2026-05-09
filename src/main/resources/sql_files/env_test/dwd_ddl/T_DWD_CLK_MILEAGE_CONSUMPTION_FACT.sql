@@ -1,0 +1,29 @@
+-- DWD层：国航系里程消费明细事实表
+-- 数据来源：T_ODS_CLK_MILEAGE_CONSUMPTION
+-- 对应ETL脚本：MILEAGE_CONSUMPTION_FACT.sql
+
+DROP TABLE IF EXISTS T_DWD_CLK_MILEAGE_CONSUMPTION_FACT;
+
+CREATE TABLE IF NOT EXISTS T_DWD_CLK_MILEAGE_CONSUMPTION_FACT (
+    PK_ID VARCHAR(100) NOT NULL COMMENT '主键：日期+航司拼接',
+    `DATE` DATE REPLACE NULL COMMENT '日期',
+    AIRLINE_NAME VARCHAR(500) REPLACE NULL COMMENT '航司名称',
+    FREE_TICKET_MILEAGE DECIMAL(20,2) REPLACE NULL COMMENT '免票里程',
+    CABIN_UPGRADE_MILEAGE DECIMAL(20,2) REPLACE NULL COMMENT '升舱里程',
+    NON_FLIGHT_MILEAGE DECIMAL(20,2) REPLACE NULL COMMENT '非航里程',
+    TOTAL_MILEAGE DECIMAL(20,2) REPLACE NULL COMMENT '总里程',
+    SYSTEM_CREATETIME DATETIME REPLACE NULL COMMENT '本系统创建日期时间',
+    SYSTEM_LAST_UPDATETIME DATETIME REPLACE NULL COMMENT '本系统最后更新日期时间'
+)
+ENGINE=OLAP
+AGGREGATE KEY(PK_ID)
+COMMENT '国航系里程消费明细事实表'
+DISTRIBUTED BY HASH(PK_ID) BUCKETS 10
+PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_medium" = "hdd",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false"
+);

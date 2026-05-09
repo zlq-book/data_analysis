@@ -1,0 +1,215 @@
+INSERT INTO DIM_PROD.T_DIM_USER_DIM(PK_ID, STUDENT_FLAG, TEACHER_FLAG) 
+SELECT 
+    t1.PK_ID, 
+    CASE 
+        WHEN SUM( 
+            CASE 
+                WHEN t2.STUDENT_FLAG = true 
+                     AND t2.DIRECT_USER_STATUS = '0' 
+                     AND t2.STUDENT_EXPIRY > DATE '@ETL_DATE' 
+                THEN 1 ELSE 0 
+            END 
+        ) >= 1 THEN true ELSE false 
+    END AS STUDENT_FLAG, 
+    CASE 
+        WHEN t1.TEACHER_FLAG = true THEN true 
+        WHEN SUM( 
+            CASE 
+                WHEN t2.TEACHER_FLAG = true 
+                     AND t2.DIRECT_USER_STATUS = '0' 
+                THEN 1 ELSE 0 
+            END 
+        ) >= 1 THEN true ELSE false 
+    END AS TEACHER_FLAG 
+FROM 
+    (SELECT PK_ID, TEACHER_FLAG  
+     FROM DWQ_PROD.T_DIM_USER_DIM_VIEW WHERE PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+         )
+    ) t1 
+JOIN ( 
+    SELECT 
+        T_ID, 
+        CUSTOMER_ID, 
+        STUDENT_FLAG, 
+        STUDENT_EXPIRY, 
+        DIRECT_USER_STATUS, 
+        TEACHER_FLAG 
+    FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+) t2 ON t1.PK_ID = t2.T_ID 
+GROUP BY t1.PK_ID, t1.TEACHER_FLAG;
+
+INSERT INTO DIM_PROD.T_DIM_USER_DIM(PK_ID, CRM_CUSTOMER_ID) 
+SELECT 
+    PK_ID,
+    CRM_CUSTOMER_ID
+FROM (
+    SELECT 
+        t1.PK_ID, 
+        t2.CUSTOMER_ID AS CRM_CUSTOMER_ID, 
+        ROW_NUMBER() OVER (
+            PARTITION BY t1.PK_ID 
+            ORDER BY t2.DIRECT_REGISTER_DATE DESC
+        ) AS rn
+    FROM 
+        (SELECT PK_ID 
+         FROM DWQ_PROD.T_DIM_USER_DIM_VIEW WHERE
+         PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999')))
+        ) t1 
+    JOIN ( 
+        SELECT 
+            T_ID, 
+            CUSTOMER_ID, 
+            DIRECT_REGISTER_DATE 
+        FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+    ) t2 ON t1.PK_ID = t2.T_ID 
+) ranked_result
+WHERE rn = 1;
+
+-- 直销用户最新登录时间
+INSERT INTO DIM_PROD.T_DIM_USER_DIM(PK_ID, DIRECT_LASTLOGIN_DATE) 
+SELECT 
+    PK_ID,
+    DIRECT_LASTLOGIN_DATE
+FROM (
+    SELECT 
+        t1.PK_ID, 
+        LAST_LOGIN_TIME AS DIRECT_LASTLOGIN_DATE,
+        ROW_NUMBER() OVER (
+            PARTITION BY t1.PK_ID 
+            ORDER BY t2.LAST_LOGIN_TIME DESC
+        ) AS rn
+    FROM 
+        (SELECT PK_ID
+         FROM DWQ_PROD.T_DIM_USER_DIM_VIEW WHERE
+         PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999')))
+        ) t1 
+    JOIN ( 
+        SELECT 
+            T_ID, 
+            LAST_LOGIN_TIME 
+        FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+    ) t2 ON t1.PK_ID = t2.T_ID 
+) ranked_result
+WHERE rn = 1;
+
+-- 直销实名认证日期
+INSERT INTO DIM_PROD.T_DIM_USER_DIM(PK_ID, DIRECT_VERIFY_DATE) 
+SELECT 
+    PK_ID,
+    DIRECT_VERIFY_DATE
+FROM (
+    SELECT 
+        t1.PK_ID, 
+        DIRECT_VERIFY_DATE,
+        ROW_NUMBER() OVER (
+            PARTITION BY t1.PK_ID 
+            ORDER BY t2.DIRECT_VERIFY_DATE ASC
+        ) AS rn
+    FROM 
+        (SELECT PK_ID
+         FROM DWQ_PROD.T_DIM_USER_DIM_VIEW WHERE
+         PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999')))
+        ) t1 
+    JOIN ( 
+        SELECT 
+            T_ID, 
+            DIRECT_VERIFY_DATE 
+        FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+        WHERE DIRECT_VERIFY_DATE IS NOT NULL
+    ) t2 ON t1.PK_ID = t2.T_ID 
+) ranked_result
+WHERE rn = 1;
+
+-- 是否直销黑名单用户、直销实名认证标识、直销用户状态
+INSERT INTO DIM_PROD.T_DIM_USER_DIM
+(PK_ID, IS_BLACKLIST_USER, DIRECT_VERIFIED_FLAG,DIRECT_USER_STATUS) 
+SELECT 
+    t1.PK_ID, 
+    CASE 
+        WHEN SUM( 
+            CASE 
+                WHEN t2.IS_BLACKLIST_USER = true THEN 1 ELSE 0 
+            END 
+        ) >= 1 THEN true ELSE NULL 
+    END AS IS_BLACKLIST_USER, 
+    CASE 
+        WHEN t1.DIRECT_VERIFIED_FLAG = true THEN true 
+        WHEN SUM( 
+            CASE 
+                WHEN t2.DIRECT_VERIFIED_FLAG = true THEN 1 ELSE 0 
+            END 
+        ) >= 1 THEN true ELSE false 
+    END AS DIRECT_VERIFIED_FLAG,
+    
+    CASE 
+    -- 优先级1：如果 t1 或 t2 中有任何一个是 1，则返回 1
+    WHEN t1.DIRECT_USER_STATUS = 1 
+         OR SUM(CASE WHEN t2.DIRECT_USER_STATUS = 1 THEN 1 ELSE 0 END) >= 1 
+    THEN 1
+    -- 优先级2：如果没有 1，但 t2 中有任意一个是 2
+    WHEN SUM(CASE WHEN t2.DIRECT_USER_STATUS = 2 THEN 1 ELSE 0 END) >= 1 
+    THEN 2
+    -- 优先级3：否则返回 0
+    WHEN SUM(CASE WHEN t2.DIRECT_USER_STATUS = 0 THEN 1 ELSE 0 END) >= 1 
+    THEN 0
+    ELSE NULL
+	END AS DIRECT_USER_STATUS
+FROM 
+    (SELECT PK_ID, DIRECT_VERIFIED_FLAG,DIRECT_USER_STATUS
+     FROM DWQ_PROD.T_DIM_USER_DIM_VIEW WHERE
+         PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999')))
+    ) t1 
+JOIN ( 
+    SELECT 
+        T_ID, 
+        IS_BLACKLIST_USER,
+        DIRECT_VERIFIED_FLAG,
+        DIRECT_USER_STATUS
+    FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+) t2 ON t1.PK_ID = t2.T_ID 
+GROUP BY t1.PK_ID,t1.DIRECT_VERIFIED_FLAG,t1.DIRECT_USER_STATUS;
+
+-- 直销用户注册日期
+INSERT INTO DIM_PROD.T_DIM_USER_DIM (PK_ID, DIRECT_REGISTER_DATE)
+SELECT 
+    PK_ID,
+    DIRECT_REGISTER_DATE
+FROM (
+    SELECT 
+        t1.PK_ID, 
+        t2.DIRECT_REGISTER_DATE,
+        ROW_NUMBER() OVER (
+            PARTITION BY t1.PK_ID 
+            ORDER BY t2.DIRECT_REGISTER_DATE ASC
+        ) AS rn
+    FROM 
+        (SELECT PK_ID
+         FROM DWQ_PROD.T_DIM_USER_DIM_VIEW WHERE
+         PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999')))
+             -- 且：尚未写入注册时间
+         AND DIRECT_REGISTER_DATE IS NULL
+        ) t1 
+    JOIN ( 
+        SELECT T_ID, DIRECT_REGISTER_DATE 
+        FROM DWQ_PROD.T_DIM_CUSTOM_DIM
+    ) t2 ON t1.PK_ID = t2.T_ID 
+) ranked_result
+WHERE rn = 1;

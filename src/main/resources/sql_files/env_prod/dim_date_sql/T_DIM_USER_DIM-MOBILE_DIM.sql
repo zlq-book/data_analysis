@@ -1,0 +1,43 @@
+-- 手机号码（新增UPDATE_TIME、MOBILE_NUMBER_RELIABILITY字段）
+INSERT INTO DIM_PROD.T_DIM_USER_DIM (
+    PK_ID,
+    MOBILE_PHONE,
+    UPDATE_TIME,  -- 新增更新时间字段
+    MOBILE_NUMBER_RELIABILITY  -- 新增手机号可信度字段
+)
+SELECT 
+    PK_ID,
+    MOBILE_PHONE,
+    CURRENT_TIMESTAMP AS UPDATE_TIME,  -- 赋值为当前系统时间戳（ETL加工时间）
+    -- 新增：根据优先级映射可信度
+    CASE 
+        WHEN mob.CURRENT_PHONE_HIGHEST_PRIORITY BETWEEN 1 AND 2 THEN '高可信'
+        WHEN mob.CURRENT_PHONE_HIGHEST_PRIORITY BETWEEN 3 AND 4 THEN '中可信'
+        WHEN mob.CURRENT_PHONE_HIGHEST_PRIORITY >= 5 THEN '低可信'
+        ELSE NULL  -- 优先级为空/非数字时赋值NULL
+    END AS MOBILE_NUMBER_RELIABILITY
+FROM (
+    SELECT 
+        t1.PK_ID,
+        t2.MOBILE_NUMBER AS MOBILE_PHONE,
+        t2.CURRENT_PHONE_HIGHEST_PRIORITY,  -- 保留优先级字段用于后续判断
+        ROW_NUMBER() OVER (
+            PARTITION BY t1.PK_ID 
+            ORDER BY COALESCE(t2.CURRENT_PHONE_HIGHEST_PRIORITY, 999) ASC  -- 兼容NULL值，兜底为999（归为低可信）
+        ) AS rn
+    FROM 
+        (SELECT * 
+         FROM T_DIM_USER_DIM WHERE PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_MOBILE_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            )
+        ) t1
+    INNER JOIN 
+        (SELECT * 
+         FROM DWQ_PROD.T_DIM_MOBILE_DIM
+         WHERE NOT IS_VIRTUAL_MOBILE  -- 排除虚拟手机号
+        ) t2 
+        ON t1.PK_ID = t2.T_ID
+) mob
+WHERE rn = 1;

@@ -1,0 +1,30 @@
+//package com.travelsky.dataplatform.main.dwd.v2.dkhcl;
+//
+//import com.travelsky.dataplatform.constans.Constants;
+//import com.travelsky.dataplatform.udf.SM4EncryptUDF;
+//import com.travelsky.trp.usercenter.data.analysis.transform.dkhcl.DwdTickingSegFactTrans;
+//import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+//import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
+//
+//public class DkhclToTickingSegToDwd {
+//    public static void main(String[] args) throws Exception {
+//
+//        if (args.length < 1) {
+//            /*加日志：etl_date参数为空*/
+//            System.exit(0);
+//        }
+//        String etlDate = args[0];
+//        String sm4key = Constants.SM4_KEY;
+//        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+//        env.setParallelism(1);
+//        final StreamTableEnvironment tEnv = StreamTableEnvironment.create(env);
+//        // 注册SM4加密UDF
+//        tEnv.createTemporarySystemFunction("sm4_encrypt", SM4EncryptUDF.class);
+//
+//        // 执行任务
+//        DwdTickingSegFactTrans.result(tEnv, etlDate);
+//        env.execute("Flink Consumer ->DKHCL Doris TO DWD");
+//
+//
+//    }
+//}

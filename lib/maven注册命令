@@ -1,0 +1,35 @@
+maven 注册第三方jar依赖=====复制以下三条指令在idea终端中执行（或者在当前项目根目录下cmd执行）
+
+mvn install:install-file -Dfile="lib\airline-common-4.2.11.jar" -DgroupId="com.travelsky.component" -DartifactId=airline-common -Dversion="4.2.11" -Dpackaging=jar
+
+mvn install:install-file -Dfile="lib\dbencrypt-1.1.5.jar" -DgroupId="com.travelsky.component" -DartifactId=dbencrypt -Dversion="1.1.5" -Dpackaging=jar
+
+mvn install:install-file -Dfile="lib\tk_cipher-1.0.1.jar" -DgroupId="com.travelsky.tsl" -DartifactId=tk_cipher -Dversion="1.0.1" -Dpackaging=jar
+
+mvn install:install-file -Dfile="lib\openjaw-utils-4.47.0.jar" -DgroupId="com.openjaw" -DartifactId=openjaw-utils -Dversion="4.47.0" -Dpackaging=jar
+注释：
+-Dfile ：是我们第三方jar包的位置
+-DgroupId ： 我们pom文件中groupId名称
+-DartifactId ： pom文件中artifactId名称
+-Dversion ： pom文件中version名称
+
+        <dependency>
+            <groupId>com.travelsky.component</groupId>
+            <artifactId>airline-common</artifactId>
+            <version>4.2.11</version>
+        </dependency>
+        <dependency>
+            <groupId>com.travelsky.component</groupId>
+            <artifactId>dbencrypt</artifactId>
+            <version>1.1.5</version>
+        </dependency>
+        <dependency>
+            <groupId>com.travelsky.tsl</groupId>
+            <artifactId>tk_cipher</artifactId>
+            <version>1.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.openjaw</groupId>
+            <artifactId>openjaw-utils</artifactId>
+            <version>4.47.0</version>
+        </dependency>

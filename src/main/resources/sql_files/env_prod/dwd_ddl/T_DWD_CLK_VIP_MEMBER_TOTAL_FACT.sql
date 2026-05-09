@@ -1,0 +1,30 @@
+-- DWD层：国航系贵宾会员总量事实表
+-- 数据来源：T_ODS_CLK_VIP_MEMBER_TOTAL
+-- 对应ETL脚本：VIP_MEMBER_TOTAL_FACT.sql
+
+DROP TABLE IF EXISTS T_DWD_CLK_VIP_MEMBER_TOTAL_FACT;
+
+CREATE TABLE IF NOT EXISTS T_DWD_CLK_VIP_MEMBER_TOTAL_FACT (
+    PK_ID VARCHAR(100) NOT NULL COMMENT '主键：日期+名称拼接',
+    `DATE` DATE REPLACE NULL COMMENT '日期',
+    NAME VARCHAR(500) REPLACE NULL COMMENT '名称',
+    FINAL_WHITE DECIMAL(20,2) REPLACE NULL COMMENT '终白',
+    PLATINUM DECIMAL(20,2) REPLACE NULL COMMENT '白金',
+    GOLD DECIMAL(20,2) REPLACE NULL COMMENT '金',
+    SILVER DECIMAL(20,2) REPLACE NULL COMMENT '银',
+    TOTAL_BY_ATTRIBUTES DECIMAL(20,2) REPLACE NULL COMMENT '各属性总量',
+    SYSTEM_CREATETIME DATETIME REPLACE NULL COMMENT '本系统创建日期时间',
+    SYSTEM_LAST_UPDATETIME DATETIME REPLACE NULL COMMENT '本系统最后更新日期时间'
+)
+ENGINE=OLAP
+AGGREGATE KEY(PK_ID)
+COMMENT '国航系贵宾会员总量事实表'
+DISTRIBUTED BY HASH(PK_ID) BUCKETS 10
+PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_medium" = "hdd",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false"
+);

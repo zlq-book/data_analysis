@@ -1,0 +1,346 @@
+
+-- 呼叫白屏票务系统2025-10-14 至 2025-10-21
+-- 第一步：不存在的TID写入T_DIM_TID_SET表
+INSERT INTO DIM_PROD.T_DIM_TID_SET
+(
+    TID,
+    ETL_DATE,
+    CREATE_TIME,
+    TID_STATUS
+)
+SELECT
+    DISTINCT
+    TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CUR_TEL), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY))) TID,
+    @ETL_DATE ETL_DATE,
+    CURRENT_TIMESTAMP(3) CREATE_TIME,
+    1 TID_STATUS
+FROM
+    ODS_PROD.T_ODS_KFBP_BUS_FARE_TICKET TK
+        LEFT JOIN ODS_PROD.T_ODS_KFBP_BUS_ORDER BO ON TK.ORDER_PKID = BO.PKID
+        LEFT JOIN ODS_PROD.T_ODS_KFBP_BUS_FLIGHT BFT ON TK.ORDER_PKID = BFT.ORDER_PKID
+        LEFT JOIN DIM_PROD.T_DIM_STRONGID tds ON
+                TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CUR_TEL), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY))) = tds.STRONGID
+            AND tds.STRONGID_STATUS = 1
+WHERE BO.TICKET_TYPE IN (2, 3, 5, 6)
+  AND TK.ETL_DATE>=@ETL_DATE
+  AND tds.TID IS NULL
+  AND BO.CUR_TEL IS NOT NULL;
+
+
+-- 第二步：模拟IDMapping写入T_DIM_STRONGID表
+INSERT INTO DIM_PROD.T_DIM_STRONGID
+(
+    STRONGID,
+    STRONGID_TYPE,
+    TID,
+    STRONGID_STATUS,
+    CREATE_TIME,
+    UPDATE_TIME,
+    ETL_DATE
+)
+SELECT
+    DISTINCT TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CUR_TEL), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY))) STRONGID,
+             'PHONE' STRONGID_TYPE,
+             IFNULL(tds.TID,TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CUR_TEL), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY)))) TID,
+             1 STRONGID_STATUS,
+             CURRENT_TIMESTAMP(3) CREATE_TIME,
+             CURRENT_TIMESTAMP(3) UPDATE_TIME,
+             @ETL_DATE ETL_DATE
+FROM
+    ODS_PROD.T_ODS_KFBP_BUS_FARE_TICKET TK
+        LEFT JOIN ODS_PROD.T_ODS_KFBP_BUS_ORDER BO ON TK.ORDER_PKID = BO.PKID
+        LEFT JOIN ODS_PROD.T_ODS_KFBP_BUS_FLIGHT BFT ON TK.ORDER_PKID = BFT.ORDER_PKID
+        LEFT JOIN DIM_PROD.T_DIM_STRONGID tds ON
+                TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CUR_TEL), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY))) = tds.STRONGID
+            AND tds.STRONGID_STATUS = 1
+WHERE BO.TICKET_TYPE IN (2, 3, 5, 6)
+  AND BO.ETL_DATE >= @ETL_DATE
+  AND BO.CUR_TEL IS NOT NULL;
+
+-- 第三步：写入改期航段事实表
+INSERT INTO DWD_PROD.T_DWD_DATECHANGE_SEG_FACT
+(
+    PK_ID,
+    CHANGE_ORDERNO,
+    AK_CHANNEL,
+    CONTACT_MOBILE_NUMBER,
+    CONTACT_NAME,
+    CONTACT_LANDLINE_MOBILE_NUMBER,
+    FK_BOOKING_USER_TID,
+    FK_BOOKING_USER_ORIGIN_ID,
+    CHANGE_TYPE,
+    SOURCE_LAST_UPDATETIME,
+    SYSTEM_CREATETIME,
+    SYSTEM_LAST_UPDATETIME
+)
+SELECT
+    -- 主键ID：票号(删除横杠) + 起飞机场 + 起飞日期
+    CONCAT(
+            REPLACE(TK.TICKET_NO, '-', ''),
+            BFT.FLT_START_CITY,
+            DATE_FORMAT(BFT.FLT_DEPARTURE_DAY, '%Y%m%d')
+        ) AS PK_ID,
+    BO.ORDER_SN AS CHANGE_ORDERNO,
+    'SCWHP' AS AK_CHANNEL,  -- 写死：SCWHP
+    -- 手机号标准化：去除所有空白字符
+    TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CONTACT_MOBILE), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY))) AS CONTACT_MOBILE_NUMBER,
+    -- 联系人姓名标准化：去除所有空白字符
+    BO.CONTACT_NAME AS CONTACT_NAME,
+    TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CONTACT_PHONE), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY))) AS CONTACT_LANDLINE_MOBILE_NUMBER,
+    -- 预订人TID
+    IFNULL(tds.TID, TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CUR_TEL), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY)))) AS FK_BOOKING_USER_TID,
+    TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CUR_TEL), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY))) AS FK_BOOKING_USER_ORIGIN_ID,
+    -- 改期类型标准化（根据实际业务规则可能需要调整）
+    IFNULL(sid.CFG_VALUE, BO.REISSUE_TYPE) AS CHANGE_TYPE,
+    TK.UPDATE_DATE AS SOURCE_LAST_UPDATETIME,
+    NOW() AS SYSTEM_CREATETIME,
+    NOW() AS SYSTEM_LAST_UPDATETIME
+FROM
+    ODS_PROD.T_ODS_KFBP_BUS_FARE_TICKET TK
+        LEFT JOIN ODS_PROD.T_ODS_KFBP_BUS_ORDER BO ON TK.ORDER_PKID = BO.PKID
+        LEFT JOIN ODS_PROD.T_ODS_KFBP_BUS_FLIGHT BFT ON TK.ORDER_PKID = BFT.ORDER_PKID
+        LEFT JOIN DIM_PROD.T_DIM_STRONGID tds ON
+                TO_BASE64(SM4_ENCRYPT(UPPER(TRIM(SM4_DECRYPT(FROM_BASE64(BO.CUR_TEL), FROM_BASE64(@SM4_KEY)))), FROM_BASE64(@SM4_KEY))) = tds.STRONGID
+            AND tds.STRONGID_STATUS = 1
+        LEFT JOIN DWD_PROD.STANDARDIZE_FIELD sid ON BO.REISSUE_TYPE=sid.CFG_CODE
+        AND sid.CFG_TYPE = 'CHANGE_TYPE' AND sid.CFG_TYPE_CHANNEL ='ALL'
+WHERE BO.TICKET_TYPE IN (2, 3, 5, 6)
+  AND TK.ETL_DATE >=  @ETL_DATE
+  AND TK.TICKET_NO is not NULL
+  AND BFT.FLT_START_CITY is not null
+  AND BFT.FLT_DEPARTURE_DAY is not null
+  AND BO.CUR_TEL IS NOT NULL;
+
+-- 国际销售系统FTP  T_ODS_YXW_SALE_REPORT
+-- 机票-改升换开出票-航段级事实表--写DWD
+INSERT INTO DWD_PROD.T_DWD_DATECHANGE_SEG_FACT
+(PK_ID, CABINBALANCE, SYSTEM_CREATETIME)
+select *
+from (SELECT CASE
+                 WHEN temp.SEGMENT_NO1 IS NOT NULL AND temp.SEGMENT_NO1 != '' AND temp.TICKET_TRAVEL_DATE1 != '99999999'
+                     THEN CONCAT(REPLACE(temp.TICKET_NUMBER, '-', ''), SUBSTRING(temp.TICKET_SEGMENT1, 1, 3),
+                                 temp.TICKET_TRAVEL_DATE1)
+                 WHEN SEGMENT_NO1 IS NOT NULL AND SEGMENT_NO1 != '' AND temp.TICKET_TRAVEL_DATE1 = '99999999'
+                     THEN CONCAT(REPLACE(temp.TICKET_NUMBER, '-', ''), SUBSTRING(temp.TICKET_SEGMENT1, 1, 3))
+                 ELSE NULL
+                 END                AS PK_ID,
+             temp.AK_SALE_PRICE_CNY AS CABINBALANCE,
+             NOW()                  AS SYSTEM_CREATETIME
+      FROM (
+               SELECT s.SEGMENT_NO1,
+                      s.TICKET_TRAVEL_DATE1,
+                      s.TICKET_NUMBER,
+                      s.TICKET_SEGMENT1,
+                      t.AK_SALE_PRICE_CNY,
+                      COUNT(s.ID) OVER (PARTITION BY s.ID) as id_count
+               FROM ODS_PROD.T_ODS_YXW_SALE_REPORT s
+                        LEFT JOIN DWD_PROD.T_DWD_TICKING_SEG_FACT t
+                                  ON t.AK_TICKET_NUMBER = REPLACE(s.ORIGINAL_TICKET_NUMBER, '-', '')
+                                      AND t.FK_DEPAIRPORT = SUBSTRING(s.TICKET_SEGMENT1, 1, 3)
+                                      AND
+                                     t.FK_ARRIAIRPORT = SUBSTRING(s.TICKET_SEGMENT1, LENGTH(s.TICKET_SEGMENT1) - 2, 3)
+               WHERE s.TICKET_NUMBER IS NOT NULL
+                 and t.DATA_ACTIVE = 1
+                 AND s.SALE_TYPE = 'E'
+                 AND s.ORIGINAL_TICKET_NUMBER IS NOT NULL
+                 AND s.ETL_DATE >= @ETL_DATE
+           ) temp
+      WHERE temp.id_count = 1 -- 只保留ID唯一的记录
+     ) temp2
+where temp2.PK_ID is not null
+  and temp2.CABINBALANCE is not null;
+
+-- 航段2
+
+INSERT INTO DWD_PROD.T_DWD_DATECHANGE_SEG_FACT
+(PK_ID, CABINBALANCE, SYSTEM_CREATETIME)
+select *
+from (SELECT CASE
+                 WHEN temp.SEGMENT_NO2 IS NOT NULL AND temp.SEGMENT_NO2 != '' AND temp.TICKET_TRAVEL_DATE2 != '99999999'
+                     THEN CONCAT(REPLACE(temp.TICKET_NUMBER, '-', ''), SUBSTRING(temp.TICKET_SEGMENT2, 1, 3),
+                                 temp.TICKET_TRAVEL_DATE2)
+                 WHEN SEGMENT_NO2 IS NOT NULL AND SEGMENT_NO2 != '' AND temp.TICKET_TRAVEL_DATE2 = '99999999'
+                     THEN CONCAT(REPLACE(temp.TICKET_NUMBER, '-', ''), SUBSTRING(temp.TICKET_SEGMENT2, 1, 3))
+                 ELSE NULL
+                 END                AS PK_ID,
+             temp.AK_SALE_PRICE_CNY AS CABINBALANCE,
+             NOW()                  AS SYSTEM_CREATETIME
+      FROM (
+               SELECT s.SEGMENT_NO2,
+                      s.TICKET_TRAVEL_DATE2,
+                      s.TICKET_NUMBER,
+                      s.TICKET_SEGMENT2,
+                      t.AK_SALE_PRICE_CNY,
+                      COUNT(s.ID) OVER (PARTITION BY s.ID) as id_count
+               FROM ODS_PROD.T_ODS_YXW_SALE_REPORT s
+                        LEFT JOIN DWD_PROD.T_DWD_TICKING_SEG_FACT t
+                                  ON t.AK_TICKET_NUMBER = REPLACE(s.ORIGINAL_TICKET_NUMBER, '-', '')
+                                      AND t.FK_DEPAIRPORT = SUBSTRING(s.TICKET_SEGMENT2, 1, 3)
+                                      AND
+                                     t.FK_ARRIAIRPORT = SUBSTRING(s.TICKET_SEGMENT2, LENGTH(s.TICKET_SEGMENT2) - 2, 3)
+               WHERE s.TICKET_NUMBER IS NOT NULL
+                 and t.DATA_ACTIVE = 1
+                 AND s.SALE_TYPE = 'E'
+                 AND s.ORIGINAL_TICKET_NUMBER IS NOT NULL
+                 AND s.ETL_DATE >= @ETL_DATE
+           ) temp
+      WHERE temp.id_count = 1 -- 只保留ID唯一的记录
+     ) temp2
+where temp2.PK_ID is not null
+  and temp2.CABINBALANCE is not null;
+-- 航段3
+INSERT INTO DWD_PROD.T_DWD_DATECHANGE_SEG_FACT
+(PK_ID, CABINBALANCE, SYSTEM_CREATETIME)
+select *
+from (SELECT CASE
+                 WHEN temp.SEGMENT_NO3 IS NOT NULL AND temp.SEGMENT_NO3 != '' AND temp.TICKET_TRAVEL_DATE3 != '99999999'
+                     THEN CONCAT(REPLACE(temp.TICKET_NUMBER, '-', ''), SUBSTRING(temp.TICKET_SEGMENT_CPN3, 1, 3),
+                                 temp.TICKET_TRAVEL_DATE3)
+                 WHEN SEGMENT_NO3 IS NOT NULL AND SEGMENT_NO3 != '' AND temp.TICKET_TRAVEL_DATE3 = '99999999'
+                     THEN CONCAT(REPLACE(temp.TICKET_NUMBER, '-', ''), SUBSTRING(temp.TICKET_SEGMENT_CPN3, 1, 3))
+                 ELSE NULL
+                 END                AS PK_ID,
+             temp.AK_SALE_PRICE_CNY AS CABINBALANCE,
+             NOW()                  AS SYSTEM_CREATETIME
+      FROM (
+               SELECT s.SEGMENT_NO3,
+                      s.TICKET_TRAVEL_DATE3,
+                      s.TICKET_NUMBER,
+                      s.TICKET_SEGMENT_CPN3,
+                      t.AK_SALE_PRICE_CNY,
+                      COUNT(s.ID) OVER (PARTITION BY s.ID) as id_count
+               FROM ODS_PROD.T_ODS_YXW_SALE_REPORT s
+                        LEFT JOIN DWD_PROD.T_DWD_TICKING_SEG_FACT t
+                                  ON t.AK_TICKET_NUMBER = REPLACE(s.ORIGINAL_TICKET_NUMBER, '-', '')
+                                      AND t.FK_DEPAIRPORT = SUBSTRING(s.TICKET_SEGMENT_CPN3, 1, 3)
+                                      AND
+                                     t.FK_ARRIAIRPORT = SUBSTRING(s.TICKET_SEGMENT_CPN3, LENGTH(s.TICKET_SEGMENT_CPN3) - 2, 3)
+               WHERE s.TICKET_NUMBER IS NOT NULL
+                 and t.DATA_ACTIVE = 1
+                 AND s.SALE_TYPE = 'E'
+                 AND s.ORIGINAL_TICKET_NUMBER IS NOT NULL
+                 AND s.ETL_DATE >= @ETL_DATE
+           ) temp
+      WHERE temp.id_count = 1 -- 只保留ID唯一的记录
+     ) temp2
+where temp2.PK_ID is not null
+  and temp2.CABINBALANCE is not null;
+-- 航段4
+INSERT INTO DWD_PROD.T_DWD_DATECHANGE_SEG_FACT
+(PK_ID, CABINBALANCE, SYSTEM_CREATETIME)
+select *
+from (SELECT CASE
+                 WHEN temp.SEGMENT_NO4 IS NOT NULL AND temp.SEGMENT_NO4 != '' AND temp.TICKET_TRAVEL_DATE4 != '99999999'
+                     THEN CONCAT(REPLACE(temp.TICKET_NUMBER, '-', ''), SUBSTRING(temp.TICKET_SEGMENT4, 1, 3),
+                                 temp.TICKET_TRAVEL_DATE4)
+                 WHEN SEGMENT_NO4 IS NOT NULL AND SEGMENT_NO4 != '' AND temp.TICKET_TRAVEL_DATE4 = '99999999'
+                     THEN CONCAT(REPLACE(temp.TICKET_NUMBER, '-', ''), SUBSTRING(temp.TICKET_SEGMENT4, 1, 3))
+                 ELSE NULL
+                 END                AS PK_ID,
+             temp.AK_SALE_PRICE_CNY AS CABINBALANCE,
+             NOW()                  AS SYSTEM_CREATETIME
+      FROM (
+               SELECT s.SEGMENT_NO4,
+                      s.TICKET_TRAVEL_DATE4,
+                      s.TICKET_NUMBER,
+                      s.TICKET_SEGMENT4,
+                      t.AK_SALE_PRICE_CNY,
+                      COUNT(s.ID) OVER (PARTITION BY s.ID) as id_count
+               FROM ODS_PROD.T_ODS_YXW_SALE_REPORT s
+                        LEFT JOIN DWD_PROD.T_DWD_TICKING_SEG_FACT t
+                                  ON t.AK_TICKET_NUMBER = REPLACE(s.ORIGINAL_TICKET_NUMBER, '-', '')
+                                      AND t.FK_DEPAIRPORT = SUBSTRING(s.TICKET_SEGMENT4, 1, 3)
+                                      AND
+                                     t.FK_ARRIAIRPORT = SUBSTRING(s.TICKET_SEGMENT4, LENGTH(s.TICKET_SEGMENT4) - 2, 3)
+               WHERE s.TICKET_NUMBER IS NOT NULL
+                 and t.DATA_ACTIVE = 1
+                 AND s.SALE_TYPE = 'E'
+                 AND s.ORIGINAL_TICKET_NUMBER IS NOT NULL
+                 AND s.ETL_DATE >= @ETL_DATE
+           ) temp
+      WHERE temp.id_count = 1 -- 只保留ID唯一的记录
+     ) temp2
+where temp2.PK_ID is not null
+  and temp2.CABINBALANCE is not null;
+
+
+-- 标准数据表TB_TCN_DATA
+-- 写入改期航段事实表
+INSERT INTO DWD_PROD.T_DWD_DATECHANGE_SEG_FACT
+(
+    PK_ID,
+    AK_CURRENCY,
+    DC_CURPAYAMOUNT,
+    DC_CURFEE,
+    CABINBALANCE_CUR,
+    DC_PAYAMOUNT,
+    DATECHANGE_FEE,
+    CABINBALANCE,
+    DATECHANGE_COUNT,
+    SYSTEM_CREATETIME,
+    SYSTEM_LAST_UPDATETIME
+)
+
+SELECT
+    -- 主键ID：TK_AIR + TK_NUM + UP_LOCATION + DEP_DATE(去除横杠)
+    CONCAT(
+            COALESCE(t1.TK_AIR, ''),
+            COALESCE(t1.TK_NUM, ''),
+            COALESCE(t1.UP_LOCATION, ''),
+            REPLACE(COALESCE(t1.DEP_DATE, ''), '-', '')
+        ) AS PK_ID,
+
+    -- 销售币种
+    t1.FARE_TYPE AS AK_CURRENCY,
+
+    -- 销售币种改升支付金额
+    t1.SMFARE AS DC_CURPAYAMOUNT,
+
+    -- 销售币种变更手续费
+    t1.OBFARE AS DC_CURFEE,
+
+    -- 销售币种舱位差价 = SMFARE - OBFARE
+    CASE
+        WHEN t1.SMFARE IS NOT NULL AND t1.OBFARE IS NOT NULL THEN t1.SMFARE - t1.OBFARE
+        WHEN t1.SMFARE IS NOT NULL THEN t1.SMFARE
+        ELSE 0
+        END AS CABINBALANCE_CUR,
+
+    -- 改升支付金额CNY（当币种为CNY时）
+    CASE
+        WHEN UPPER(t1.FARE_TYPE) = 'CNY' AND t1.SMFARE IS NOT NULL THEN t1.SMFARE
+        ELSE NULL
+        END AS DC_PAYAMOUNT,
+
+    -- 变更手续费CNY（当币种为CNY时）
+    CASE
+        WHEN UPPER(t1.FARE_TYPE) = 'CNY' AND t1.OBFARE IS NOT NULL THEN t1.OBFARE
+        ELSE NULL
+        END AS DATECHANGE_FEE,
+
+    -- 舱位差价CNY（当币种为CNY时）
+    CASE
+        WHEN UPPER(t1.FARE_TYPE) = 'CNY' THEN
+            CASE
+                WHEN t1.SMFARE IS NOT NULL AND t1.OBFARE IS NOT NULL THEN t1.SMFARE - t1.OBFARE
+                WHEN t1.SMFARE IS NOT NULL THEN t1.SMFARE
+                ELSE 0
+                END
+        ELSE NULL
+        END AS CABINBALANCE,
+
+    -- 改升航段计数
+    1 AS DATECHANGE_COUNT,
+
+    NOW() AS SYSTEM_CREATETIME,
+    NOW() AS SYSTEM_LAST_UPDATETIME
+
+FROM ODS_PROD.T_ODS_BZSJ_TB_TCN_DATA t1
+WHERE t1.CHTKNUM IS NOT NULL
+  AND t1.ETL_DATE >= DATE_SUB(@ETL_DATE, INTERVAL 2 DAY)
+  -- 确保主键字段不为空
+  AND t1.TK_AIR IS NOT NULL AND t1.TK_AIR != ''
+  AND t1.TK_NUM IS NOT NULL AND t1.TK_NUM != ''
+  AND t1.UP_LOCATION IS NOT NULL AND t1.UP_LOCATION != ''
+  AND t1.DEP_DATE IS NOT NULL AND t1.DEP_DATE != '';
+

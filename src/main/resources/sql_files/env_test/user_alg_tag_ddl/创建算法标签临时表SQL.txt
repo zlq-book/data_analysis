@@ -1,0 +1,95 @@
+DROP TABLE T_DIM_USER_DIM_ALG_AGT;
+/* 创建算法标签疑似代理人的临时表 */
+CREATE TABLE T_DIM_USER_DIM_ALG_AGT (
+  PK_ID varchar(256) NOT NULL COMMENT "用户T_ID",
+  SUSPECTED_AGENT varchar(5) NULL COMMENT "疑似代理人" ,
+  UPDATE_TIME datetime(3) NULL  COMMENT "更新时间"  ---用于排查问题
+) ENGINE=OLAP
+UNIQUE KEY(PK_ID)
+COMMENT '用户维表算法标签疑似代理人'
+DISTRIBUTED BY HASH(PK_ID) BUCKETS 10
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 3",
+"min_load_replica_num" = "-1",
+"is_being_synced" = "false",
+"storage_medium" = "hdd",
+"storage_format" = "V2",
+"inverted_index_storage_format" = "V1",
+"light_schema_change" = "true",
+"disable_auto_compaction" = "false",
+"enable_single_replica_compaction" = "false",
+"group_commit_interval_ms" = "10000",
+"group_commit_data_bytes" = "134217728"
+);
+
+DROP TABLE T_DIM_USER_DIM_ALG_CLS;
+/* 创建算法标签客户流失率的临时表 */
+CREATE TABLE T_DIM_USER_DIM_ALG_CLS (
+  PK_ID varchar(256) NOT NULL COMMENT "用户T_ID",
+  CUSTOMER_CHURN_LABEL varchar(30)  NULL COMMENT "客户流失标签",
+  UPDATE_TIME datetime(3) NULL  COMMENT "更新时间"  ---用于排查问题
+) ENGINE=OLAP
+UNIQUE KEY(PK_ID)
+COMMENT '用户维表算法标签客户流失率'
+DISTRIBUTED BY HASH(PK_ID) BUCKETS 10
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 3",
+"min_load_replica_num" = "-1",
+"is_being_synced" = "false",
+"storage_medium" = "hdd",
+"storage_format" = "V2",
+"inverted_index_storage_format" = "V1",
+"light_schema_change" = "true",
+"disable_auto_compaction" = "false",
+"enable_single_replica_compaction" = "false",
+"group_commit_interval_ms" = "10000",
+"group_commit_data_bytes" = "134217728"
+);
+
+DROP TABLE T_DIM_USER_DIM_ALG_REP;
+/* 创建算法标签客户复购率的临时表 */
+CREATE TABLE T_DIM_USER_DIM_ALG_REP (
+  PK_ID varchar(256) NOT NULL COMMENT "用户T_ID",
+  CUSTOMER_FLIGHT_PURCHASE_RATE_REPURCHASE_RATE decimal(5,2)  NULL COMMENT "客户购买机票率（复购率）",
+  UPDATE_TIME datetime(3) NULL  COMMENT "更新时间"  ---用于排查问题
+) ENGINE=OLAP
+UNIQUE KEY(PK_ID)
+COMMENT '用户维表算法标签客户复购率'
+DISTRIBUTED BY HASH(PK_ID) BUCKETS 10
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 3",
+"min_load_replica_num" = "-1",
+"is_being_synced" = "false",
+"storage_medium" = "hdd",
+"storage_format" = "V2",
+"inverted_index_storage_format" = "V1",
+"light_schema_change" = "true",
+"disable_auto_compaction" = "false",
+"enable_single_replica_compaction" = "false",
+"group_commit_interval_ms" = "10000",
+"group_commit_data_bytes" = "134217728"
+);
+
+DROP TABLE T_DIM_USER_DIM_ALG_VAL;
+/* 创建算法标签客户贡献率的临时表 */
+CREATE TABLE T_DIM_USER_DIM_ALG_VAL (
+  PK_ID varchar(256) NOT NULL COMMENT "用户T_ID",
+  CUSTOMER_CONTRIBUTION varchar(50)  NULL COMMENT "客户贡献率" ,
+  UPDATE_TIME datetime(3) NULL  COMMENT "更新时间"  ---用于排查问题
+) ENGINE=OLAP
+UNIQUE KEY(PK_ID)
+COMMENT '用户维表算法标签客户贡献率'
+DISTRIBUTED BY HASH(PK_ID) BUCKETS 10
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 3",
+"min_load_replica_num" = "-1",
+"is_being_synced" = "false",
+"storage_medium" = "hdd",
+"storage_format" = "V2",
+"inverted_index_storage_format" = "V1",
+"light_schema_change" = "true",
+"disable_auto_compaction" = "false",
+"enable_single_replica_compaction" = "false",
+"group_commit_interval_ms" = "10000",
+"group_commit_data_bytes" = "134217728"
+);

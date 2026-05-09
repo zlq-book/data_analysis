@@ -1,0 +1,112 @@
+-- 插入常旅客信息并添加更新时间
+INSERT INTO DIM_PROD.T_DIM_USER_DIM (
+    PK_ID,
+    FREQUENT_TRAVELER_CARDNO,
+    FREQUENT_TRAVELER_LEVEL,
+    DEV_CHANNEL_ONE,
+    DEV_CHANNEL_TWO,
+    DEV_CHANNEL_THREE,
+    DEV_CHANNEL_FOUR,
+    FT_REGISTER_TIME,
+    PARENT_FT_CARDNO,
+    IS_FREQUENT_TRAVELER,
+    UPDATE_TIME  -- 新增 UPDATE_TIME 字段
+)
+SELECT 
+    PK_ID,
+    FFRF AS FREQUENT_TRAVELER_CARDNO,
+    CASE WHEN FF_LEVEL = 'C' THEN 'B' ELSE FF_LEVEL END AS FREQUENT_TRAVELER_LEVEL,
+    DEV_CHANNEL_ONE,
+    DEV_CHANNEL_TWO,
+    DEV_CHANNEL_THREE,
+    DEV_CHANNEL_FOUR,
+    FT_REGISTER_TIME,
+    PARENT_FT_CARDNO,
+    (FFRF IS NOT NULL AND TRIM(FFRF) <> '') AS IS_FREQUENT_TRAVELER,
+    CURRENT_TIMESTAMP AS UPDATE_TIME  -- 新增：赋值为当前时间戳
+FROM (
+    SELECT 
+        t1.PK_ID,
+        t2.FFRF,
+        t2.FF_LEVEL,
+        t2.DEV_CHANNEL_ONE,
+        t2.DEV_CHANNEL_TWO,
+        t2.DEV_CHANNEL_THREE,
+        t2.DEV_CHANNEL_FOUR,
+        t2.FT_REGISTER_TIME,
+        t2.PARENT_CARD_NUMBER AS PARENT_FT_CARDNO,
+        ROW_NUMBER() OVER (
+            PARTITION BY t1.PK_ID 
+            ORDER BY 
+                CASE t2.FF_LEVEL
+                    WHEN 'T' THEN 6
+                    WHEN 'L' THEN 5
+                    WHEN 'V' THEN 4
+                    WHEN 'G' THEN 3
+                    WHEN 'S' THEN 2
+                    WHEN 'B' THEN 1
+	    WHEN 'C' THEN 1  -- 可选：C和B同优先级，按需保留
+                    ELSE -1
+                END DESC
+        ) AS rn
+    FROM 
+        (SELECT * 
+         FROM DWQ_PROD.T_DIM_USER_DIM_VIEW where PK_ID in ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_FFP_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+         )
+        ) t1
+    INNER JOIN 
+        (SELECT * 
+         FROM DWQ_PROD.T_DIM_FFP_DIM
+        ) t2 
+        ON t1.PK_ID = t2.T_ID
+) ranked_result
+WHERE rn = 1;
+
+-- 插入易捷卡信息并添加更新时间
+INSERT INTO DIM_PROD.T_DIM_USER_DIM (
+    PK_ID,
+    YJ_CARD_NUMBER,
+    YJ_CARD_EXPIREDATE,
+    IS_YJ_PERSONNEL,
+    UPDATE_TIME  -- 新增 UPDATE_TIME 字段
+)
+SELECT 
+    t1.PK_ID,
+    t2.YJ_CARD_NUMBER,
+    t2.YJ_CARD_EXPIREDATE,
+    CASE 
+        WHEN t2.YJ_CARD_NUMBER IS NOT NULL 
+             AND TRIM(t2.YJ_CARD_NUMBER) <> '' 
+        THEN 'true'
+        ELSE 'false'
+    END AS IS_YJ_PERSONNEL,
+    CURRENT_TIMESTAMP AS UPDATE_TIME  -- 新增：赋值为当前时间戳
+FROM 
+    (
+    SELECT PK_ID 
+    FROM DWQ_PROD.T_DIM_USER_DIM_VIEW where PK_ID in ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_FFP_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+         )
+    ) t1
+LEFT JOIN 
+    (
+    SELECT 
+        T_ID,
+        YJ_CARD_NUMBER,
+        YJ_CARD_EXPIREDATE
+    FROM (
+        SELECT 
+            T_ID,
+            YJ_CARD AS YJ_CARD_NUMBER,
+            YJ_CARD_EXPIREDATE,
+            ROW_NUMBER() OVER (PARTITION BY T_ID ORDER BY YJ_CARD_EXPIREDATE DESC) AS rn
+        FROM DWQ_PROD.T_DIM_FFP_DIM
+
+    ) ranked 
+    WHERE rn = 1
+    ) t2 ON t1.PK_ID = t2.T_ID;

@@ -1,0 +1,217 @@
+-- 证件信息
+INSERT INTO DIM_PROD.T_DIM_USER_DIM (
+    PK_ID,
+    ID_CARD,
+    PASSPORT,
+    SEAMAN_ID,
+    ALIEN_PERMIT,
+    DIPLOMATIC_STAFF_CERTIFICATE,
+    PERMANENT_RESIDENT_ID,
+    CIVILIAN_STAFF_ID,
+    STAFF_ID,
+    OFFICER_ID_CARD,
+    ARMED_POLICE_OFFICER,
+    ARMED_POLICE_SOLDIER,
+    CIVILIAN_OFFICIAL_ID,
+    CONSCRIPT_SOLDIER_ID,
+    NON_COMMISSIONED_OFFICER_ID,
+    HK_MACAO_RESIDENT_PERMIT,
+    TAIWAN_RESIDENT_TRAVEL_PERMIT,
+    HK_MACAO_TRAVEL_PERMIT,
+    MAINLAND_TO_TAIWAN_TRAVEL_PERMIT,
+    HK_MACAO_TAIWAN_ID_CARD,
+    HK_MACAO_TAIWAN_RESIDENCE_PERMIT,
+    FREQUENT_TRAVELER_LEVEL,
+    PROVINCE,   -- 新增字段
+    CITY,        -- 新增字段
+    IS_CORP_TRAVEL_MILITARY_CARD,
+    BIRTHDAY,    -- 新增生日字段
+    UPDATE_TIME, -- 新增更新时间字段
+    USER_TYPE,   -- 新增用户类型字段
+    AGE,         -- 新增年龄字段
+    SEX       -- 新增性别字段（M/F表示）
+) 
+SELECT 
+    t1.PK_ID,
+    -- 证件类字段
+    CASE WHEN t2.CERT_TYPE = 'NI' THEN t2.CERT_NUMBER ELSE NULL END AS ID_CARD,
+    CASE WHEN t2.CERT_TYPE = 'PP' THEN t2.CERT_NUMBER ELSE NULL END AS PASSPORT,
+    CASE WHEN t2.CERT_TYPE = 'SC' THEN t2.CERT_NUMBER ELSE NULL END AS SEAMAN_ID,
+    CASE WHEN t2.CERT_TYPE = 'FR' THEN t2.CERT_NUMBER ELSE NULL END AS ALIEN_PERMIT,
+    CASE WHEN t2.CERT_TYPE = 'CD' THEN t2.CERT_NUMBER ELSE NULL END AS DIPLOMATIC_STAFF_CERTIFICATE,
+    CASE WHEN t2.CERT_TYPE = 'PR' THEN t2.CERT_NUMBER ELSE NULL END AS PERMANENT_RESIDENT_ID,
+    CASE WHEN t2.CERT_TYPE = 'CS' THEN t2.CERT_NUMBER ELSE NULL END AS CIVILIAN_STAFF_ID,
+    CASE WHEN t2.CERT_TYPE = 'SE' THEN t2.CERT_NUMBER ELSE NULL END AS STAFF_ID,
+    CASE WHEN t2.CERT_TYPE = 'OF' THEN t2.CERT_NUMBER ELSE NULL END AS OFFICER_ID_CARD,
+    CASE WHEN t2.CERT_TYPE = 'WP' THEN t2.CERT_NUMBER ELSE NULL END AS ARMED_POLICE_OFFICER,
+    CASE WHEN t2.CERT_TYPE = 'WS' THEN t2.CERT_NUMBER ELSE NULL END AS ARMED_POLICE_SOLDIER,
+    CASE WHEN t2.CERT_TYPE = 'CW' THEN t2.CERT_NUMBER ELSE NULL END AS CIVILIAN_OFFICIAL_ID,
+    CASE WHEN t2.CERT_TYPE = 'VC' THEN t2.CERT_NUMBER ELSE NULL END AS CONSCRIPT_SOLDIER_ID,
+    CASE WHEN t2.CERT_TYPE = 'NC' THEN t2.CERT_NUMBER ELSE NULL END AS NON_COMMISSIONED_OFFICER_ID,
+    CASE WHEN t2.CERT_TYPE = 'RP' THEN t2.CERT_NUMBER ELSE NULL END AS HK_MACAO_RESIDENT_PERMIT,
+    CASE WHEN t2.CERT_TYPE = 'TC' THEN t2.CERT_NUMBER ELSE NULL END AS TAIWAN_RESIDENT_TRAVEL_PERMIT,
+    CASE WHEN t2.CERT_TYPE = 'HP' THEN t2.CERT_NUMBER ELSE NULL END AS HK_MACAO_TRAVEL_PERMIT,
+    CASE WHEN t2.CERT_TYPE = 'CT' THEN t2.CERT_NUMBER ELSE NULL END AS MAINLAND_TO_TAIWAN_TRAVEL_PERMIT,
+    CASE WHEN t2.CERT_TYPE = 'RT' THEN t2.CERT_NUMBER ELSE NULL END AS HK_MACAO_TAIWAN_ID_CARD,
+    CASE WHEN t2.CERT_TYPE = 'RR' THEN t2.CERT_NUMBER ELSE NULL END AS HK_MACAO_TAIWAN_RESIDENCE_PERMIT,
+    -- 常旅客等级
+    NULL AS FREQUENT_TRAVELER_LEVEL,
+    -- 省份和城市（仅当是身份证且优先级为1时）
+    CASE 
+        WHEN t2.CERT_TYPE = 'NI' AND t2.CURRENT_CERT_HIGHEST_PRIORITY = 1 
+        THEN pc.PROVINCE 
+        ELSE NULL 
+    END AS PROVINCE,
+    CASE 
+        WHEN t2.CERT_TYPE = 'NI' AND t2.CURRENT_CERT_HIGHEST_PRIORITY = 1 
+        THEN pc.CITY 
+        ELSE NULL 
+    END AS CITY,
+    -- 是否为大客户判断逻辑
+    CASE 
+        -- 先判断是否存在NULL值，存在则结果为NULL
+        WHEN EXISTS (
+            SELECT 1 
+            FROM DWQ_PROD.T_DIM_CERT_DIM t3
+            WHERE t3.T_ID = t1.PK_ID
+              AND t3.IS_CORP_TRAVEL_MILITARY_CARD IS NULL
+        ) THEN NULL
+        -- 若不存在NULL值，且无"是且有效"的证件，则为"否"
+        WHEN NOT EXISTS (
+            SELECT 1 
+            FROM DWQ_PROD.T_DIM_CERT_DIM t3
+            WHERE t3.T_ID = t1.PK_ID
+              AND t3.IS_CORP_TRAVEL_MILITARY_CARD = true
+              AND t3.CERT_EXPIRE_DATE >= CURRENT_DATE
+        ) THEN '0'
+        -- 若不存在NULL值，且存在"是且有效"的证件，则为"是"
+        ELSE '1' 
+    END AS IS_CORP_TRAVEL_MILITARY_CARD,
+    -- 生日字段：优先级0时不更新，否则从可信身份证解析
+    CASE 
+        -- 当BIRTHDAY_PRIORITY为0时，保持原值不更新
+        -- WHEN t1.BIRTHDAY_PRIORITY = 0 THEN t1.BIRTHDAY
+        -- 否则从可信身份证解析生日（需满足可信条件且为身份证）
+        WHEN t2.CERT_TYPE = 'NI' 
+             AND LENGTH(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY))) = 18
+             AND (t2.IS_DIRECT_SALES_REAL_NAME_VERIFIED_CARD = TRUE 
+                  OR t2.IS_LY_REGIST_CARD = TRUE 
+                  OR t2.IS_FREQUENT_FLYER_REGISTRATION_CARD = TRUE 
+                  OR t2.IS_PURCHASERS_BENEFICIARY_CARD = TRUE)
+        THEN STR_TO_DATE(
+                 SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 7, 8), 
+                 '%Y%m%d'
+             )
+        -- 其他情况保持原值
+        ELSE t1.BIRTHDAY
+    END AS BIRTHDAY,
+    -- 新增更新时间（保持原有逻辑不变）
+    CURRENT_TIMESTAMP AS UPDATE_TIME,
+    -- 新增：USER_TYPE 计算逻辑
+    CASE
+        -- 先判断是否有可信身份证解析的生日（无则为NULL）
+        WHEN NOT (t2.CERT_TYPE = 'NI' 
+             AND LENGTH(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY))) = 18
+             AND (t2.IS_DIRECT_SALES_REAL_NAME_VERIFIED_CARD = TRUE 
+                  OR t2.IS_LY_REGIST_CARD = TRUE 
+                  OR t2.IS_FREQUENT_FLYER_REGISTRATION_CARD = TRUE 
+                  OR t2.IS_PURCHASERS_BENEFICIARY_CARD = TRUE))
+        THEN NULL
+        -- 解析可信生日
+        ELSE 
+            -- 计算精确年龄（排除生日当天）
+            CASE
+                WHEN TIMESTAMPDIFF(YEAR, 
+                                   STR_TO_DATE(SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 7, 8), '%Y%m%d'),
+                                   CURRENT_DATE) < 2 
+                THEN 'INF' -- 0-2岁（不含生日当天）：婴儿
+                WHEN TIMESTAMPDIFF(YEAR, 
+                                   STR_TO_DATE(SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 7, 8), '%Y%m%d'),
+                                   CURRENT_DATE) >= 2 
+                     AND TIMESTAMPDIFF(YEAR, 
+                                      STR_TO_DATE(SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 7, 8), '%Y%m%d'),
+                                      CURRENT_DATE) < 12
+                THEN 'CHD' -- 2（含）-12岁（不含生日当天）：儿童
+                WHEN TIMESTAMPDIFF(YEAR, 
+                                   STR_TO_DATE(SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 7, 8), '%Y%m%d'),
+                                   CURRENT_DATE) >= 12 
+                     AND TIMESTAMPDIFF(YEAR, 
+                                      STR_TO_DATE(SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 7, 8), '%Y%m%d'),
+                                      CURRENT_DATE) < 18
+                THEN 'YTH' -- 12（含）-18岁（不含生日当天）：少年
+                WHEN TIMESTAMPDIFF(YEAR, 
+                                   STR_TO_DATE(SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 7, 8), '%Y%m%d'),
+                                   CURRENT_DATE) >= 18
+                THEN 'ADT' -- 大于等于18周岁：成人
+                ELSE NULL -- 异常情况
+            END
+    END AS USER_TYPE,
+    -- 新增：AGE 年龄计算逻辑（基于BIRTHDAY，与USER_TYPE年龄逻辑一致）
+    CASE
+        -- 仅当生日有效时计算年龄，否则为NULL
+        WHEN (t2.CERT_TYPE = 'NI' 
+             AND LENGTH(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY))) = 18
+             AND (t2.IS_DIRECT_SALES_REAL_NAME_VERIFIED_CARD = TRUE 
+                  OR t2.IS_LY_REGIST_CARD = TRUE 
+                  OR t2.IS_FREQUENT_FLYER_REGISTRATION_CARD = TRUE 
+                  OR t2.IS_PURCHASERS_BENEFICIARY_CARD = TRUE))
+        THEN TIMESTAMPDIFF(YEAR, 
+                           STR_TO_DATE(SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 7, 8), '%Y%m%d'),
+                           CURRENT_DATE)
+        -- 若生日无效（非身份证可信生日/生日为NULL），则年龄为NULL
+        ELSE NULL
+    END AS AGE,
+    -- 新增：SEX性别计算逻辑（基于身份证第17位，用M/F表示）
+    CASE
+        -- 仅对可信18位身份证号判断性别，否则为NULL
+        WHEN t2.CERT_TYPE = 'NI' 
+             AND LENGTH(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY))) = 18
+--             AND (t2.IS_DIRECT_SALES_REAL_NAME_VERIFIED_CARD = TRUE 
+--                  OR t2.IS_LY_REGIST_CARD = TRUE 
+--                  OR t2.IS_FREQUENT_FLYER_REGISTRATION_CARD = TRUE 
+--                  OR t2.IS_PURCHASERS_BENEFICIARY_CARD = TRUE)
+        THEN CASE 
+                -- 取第17位数字，取模2判断奇偶：奇数为M（男），偶数为F（女）
+                WHEN MOD(SUBSTRING(SM4_DECRYPT(FROM_BASE64(t2.CERT_NUMBER), FROM_BASE64(@SM4_KEY)), 17, 1), 2) = 1 
+                THEN 'M' 
+                ELSE 'F' 
+             END
+        -- 非可信身份证场景，性别为NULL
+        ELSE NULL
+    END AS SEX
+
+FROM (
+    SELECT * 
+    FROM DWQ_PROD.T_DIM_USER_DIM_VIEW where PK_ID in ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_CERT_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+         )
+) t1
+INNER JOIN (
+    SELECT 
+        T_ID,
+        CERT_TYPE,
+        CERT_NUMBER,
+        IS_FREQUENT_FLYER_REGISTRATION_CARD,
+        IS_LY_REGIST_CARD,
+        IS_PURCHASERS_BENEFICIARY_CARD,
+        IS_DOUYIN_PURCHASERS_BENEFICIARY_CARD,
+        IS_DIRECT_SALES_REAL_NAME_VERIFIED_CARD,
+        CURRENT_CERT_HIGHEST_PRIORITY,
+        ROW_NUMBER() OVER (
+            PARTITION BY T_ID 
+            ORDER BY CURRENT_CERT_HIGHEST_PRIORITY ASC 
+        ) AS rn
+    FROM DWQ_PROD.T_DIM_CERT_DIM
+
+) t2 ON t1.PK_ID = t2.T_ID AND t2.rn = 1
+LEFT JOIN DWQ_PROD.T_DIM_PROVINCE_CITY_DIM pc
+    ON t2.CERT_TYPE = 'NI'
+    AND pc.ID = SUBSTRING(
+        SM4_DECRYPT(
+            FROM_BASE64(t2.CERT_NUMBER), 
+            FROM_BASE64(@SM4_KEY)
+        ), 
+        1, 4
+    );

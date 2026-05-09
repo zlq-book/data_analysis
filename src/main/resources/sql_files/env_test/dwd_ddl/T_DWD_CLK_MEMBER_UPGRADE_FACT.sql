@@ -1,0 +1,30 @@
+-- DWD层：国航系会员升级量事实表
+-- 数据来源：T_ODS_CLK_MEMBER_UPGRADE
+-- 对应ETL脚本：MEMBER_UPGRADE_FACT.sql
+
+DROP TABLE IF EXISTS T_DWD_CLK_MEMBER_UPGRADE_FACT;
+
+CREATE TABLE IF NOT EXISTS T_DWD_CLK_MEMBER_UPGRADE_FACT (
+    PK_ID VARCHAR(100) NOT NULL COMMENT '主键：日期+名称拼接',
+    `DATE` DATE REPLACE NULL COMMENT '日期',
+    AIRLINE_NAME VARCHAR(500) REPLACE NULL COMMENT '航司名称',
+    FINAL_WHITE DECIMAL(20,2) REPLACE NULL COMMENT '终白',
+    PLATINUM DECIMAL(20,2) REPLACE NULL COMMENT '白金',
+    GOLD DECIMAL(20,2) REPLACE NULL COMMENT '金',
+    SILVER DECIMAL(20,2) REPLACE NULL COMMENT '银',
+    SUBTOTAL DECIMAL(20,2) REPLACE NULL COMMENT '小计',
+    SYSTEM_CREATETIME DATETIME REPLACE NULL COMMENT '本系统创建日期时间',
+    SYSTEM_LAST_UPDATETIME DATETIME REPLACE NULL COMMENT '本系统最后更新日期时间'
+)
+ENGINE=OLAP
+AGGREGATE KEY(PK_ID)
+COMMENT '国航系会员升级量事实表'
+DISTRIBUTED BY HASH(PK_ID) BUCKETS 10
+PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_medium" = "hdd",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false"
+);

@@ -1,0 +1,90 @@
+INSERT INTO DIM_PROD.T_DIM_USER_DIM (
+    PK_ID,
+    LY_MEMBER_ID,
+    LY_REGISTER_TIME,
+    LY_CARD_NUMBER,
+    LY_USER_LEVEL,
+    LY_REGISTER_STATUS,
+    LY_VERIFY_STATUS,
+    LY_LIFETIME_POINTS,
+    LY_AVAILABLE_POINTS
+)
+SELECT 
+    PK_ID,
+    LY_USER_ID AS LY_MEMBER_ID,
+    LY_REGISTER_TIME,
+    LY_CARD_NUMBER,
+    LY_USER_LEVEL,
+    LY_REGISTER_STATUS,
+    LY_VERIFY_STATUS,
+    LY_LIFETIME_POINTS,
+    LY_AVAILABLE_POINTS
+FROM (
+    SELECT 
+        t1.PK_ID,
+        t2.LY_USER_ID,
+        t2.LY_REGISTER_TIME,
+        t2.LY_CARD_NUMBER,
+        t2.LY_USER_LEVEL,
+        t2.LY_REGISTER_STATUS,
+        t2.LY_VERIFY_STATUS,
+        t2.LY_LIFETIME_POINTS,
+        t2.LY_AVAILABLE_POINTS,
+        ROW_NUMBER() OVER (
+            PARTITION BY t1.PK_ID 
+            ORDER BY t2.LY_USER_LEVEL DESC 
+        ) AS rn
+    FROM 
+        (SELECT * 
+         FROM DWQ_PROD.T_DIM_USER_DIM_VIEW WHERE PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_LYX_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            AND LY_USER_STATUS = '0'
+            )
+        ) t1
+    INNER JOIN 
+        (SELECT * 
+         FROM DWQ_PROD.T_DIM_LYX_DIM
+        ) t2 
+        ON t1.PK_ID = t2.T_ID
+) ranked_result
+WHERE rn = 1;
+
+-- 插入鲁雁行会员状态+是否鲁雁行用户（新增UPDATE_TIME、IS_LY_USER）
+INSERT INTO DIM_PROD.T_DIM_USER_DIM (
+    PK_ID, 
+    LY_USER_STATUS,
+    IS_LY_USER,  -- 新增：是否鲁雁行用户
+    UPDATE_TIME  -- 新增更新时间字段
+)
+SELECT 
+    t1.PK_ID,
+    -- 鲁雁行用户状态：有一条为0则整体为0，否则为1
+    CASE 
+        WHEN SUM(CASE WHEN t2.LY_USER_STATUS = '0' THEN 1 ELSE 0 END) > 0 
+        THEN '0' 
+        ELSE '1' 
+    END AS LY_USER_STATUS,
+    -- 是否鲁雁行用户：有一条状态为0则为“是”，否则为“否”
+    CASE 
+        WHEN SUM(CASE WHEN t2.LY_USER_STATUS = '0' THEN 1 ELSE 0 END) > 0 
+        THEN true
+        ELSE NULL 
+    END AS IS_LY_USER,
+    CURRENT_TIMESTAMP AS UPDATE_TIME  -- 赋值为当前系统时间戳
+FROM 
+    (SELECT PK_ID 
+     FROM DWQ_PROD.T_DIM_USER_DIM_VIEW WHERE PK_ID IN ( SELECT T_ID
+         FROM DWQ_PROD.T_DIM_LYX_DIM
+         WHERE (CREATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND CREATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+            OR (UPDATE_TIME >= CONCAT(@ETL_DATE, ' 00:00:00.000') AND UPDATE_TIME < CONCAT(@ETL_DATE, ' 23:59:59.999'))
+          )
+    ) t1
+INNER JOIN 
+    (SELECT T_ID, LY_USER_STATUS 
+     FROM DWQ_PROD.T_DIM_LYX_DIM
+    ) t2 
+    ON t1.PK_ID = t2.T_ID
+GROUP BY 
+    t1.PK_ID;
